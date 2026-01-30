@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Logo from './components/Logo';
 import LoadingMessage from './components/LoadingMessage';
 import MessageBubble from './components/MessageBubble';
+import { sanitizeErrorMessage, isErrorResponse, logError } from './utils/ErrorHandler';
 
 interface Message {
   id: string;
@@ -98,55 +99,70 @@ const App: React.FC = () => {
   };
 
   const sendMessage = async () => {
-    if (!inputValue.trim() || isLoading) return;
+  if (!inputValue.trim() || isLoading) return;
 
-    const query = inputValue.trim();
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      type: 'user',
-      content: query,
+  const query = inputValue.trim();
+  const userMessage: Message = {
+    id: Date.now().toString(),
+    type: 'user',
+    content: query,
+    timestamp: new Date()
+  };
+
+  setMessages(prev => [...prev, userMessage]);
+  setInputValue('');
+  setIsLoading(true);
+
+  try {
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ query })
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data: ChatResponse = await response.json();
+
+    // Check if response is an error and sanitize it
+    const isError = data.error || isErrorResponse(data.response);
+    const displayContent = isError 
+      ? sanitizeErrorMessage(data.response)
+      : data.response;
+
+    // Log original error for debugging (only in console)
+    if (isError) {
+      logError('API Response', data.response);
+    }
+
+    const aiMessage: Message = {
+      id: (Date.now() + 1).toString(),
+      type: isError ? 'error' : 'ai',
+      content: displayContent,
       timestamp: new Date()
     };
 
-    setMessages(prev => [...prev, userMessage]);
-    setInputValue('');
-    setIsLoading(true);
-
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ query })
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data: ChatResponse = await response.json();
-
-      const aiMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        type: data.error ? 'error' : 'ai',
-        content: data.response,
-        timestamp: new Date()
-      };
-
-      setMessages(prev => [...prev, aiMessage]);
-    } catch (error) {
-      const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        type: 'error',
-        content: 'Sorry, I encountered an error while processing your request. Please check your connection and try again.',
-        timestamp: new Date()
-      };
-      setMessages(prev => [...prev, errorMessage]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    setMessages(prev => [...prev, aiMessage]);
+  } catch (error) {
+    // Log full error for debugging
+    logError('Chat Request Failed', error);
+    
+    // Show sanitized message to user
+    const errorMessage: Message = {
+      id: (Date.now() + 1).toString(),
+      type: 'error',
+      content: sanitizeErrorMessage(String(error)),
+      timestamp: new Date()
+    };
+    setMessages(prev => [...prev, errorMessage]);
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
