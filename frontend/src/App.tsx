@@ -15,36 +15,62 @@ interface ChatResponse {
   error: boolean;
 }
 
-const App: React.FC = () => {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [inputValue, setInputValue] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [isOnline, setIsOnline] = useState(true);
-  const chatContainerRef = useRef<HTMLDivElement>(null);
+// Helper function to get initial messages from localStorage
+const getInitialMessages = (): Message[] => {
+  try {
+    const savedHistory = localStorage.getItem('chatHistory');
+    if (savedHistory) {
+      const parsed = JSON.parse(savedHistory);
+      // Convert timestamp strings back to Date objects
+      return parsed.map((msg: any) => ({
+        ...msg,
+        timestamp: new Date(msg.timestamp)
+      }));
+    }
+  } catch (e) {
+    console.error('Failed to load chat history:', e);
+  }
+  return [];
+};
 
-  useEffect(() => {
-    // Clear any stored chat history on app load/refresh
-    localStorage.removeItem('chatMessages');
-    localStorage.removeItem('chatHistory');
-    sessionStorage.removeItem('chatMessages');
-    sessionStorage.removeItem('chatHistory');
-    
-    // Add welcome message
-    const welcomeMessage: Message = {
-      id: 'welcome',
-      type: 'ai',
-      content: `Hello! I'm your INCF KnowledgeSpace assistant. I can help you discover and explore neuroscience datasets.
+// Welcome message constant
+const WELCOME_MESSAGE: Message = {
+  id: 'welcome',
+  type: 'ai',
+  content: `Hello! I'm your INCF KnowledgeSpace assistant. I can help you discover and explore neuroscience datasets.
 
 Try asking me something like:
 • "Brain imaging"
 • "EEG data "
 • "fMRI"
 • "cognitive neuroscience"`,
-      timestamp: new Date()
-    };
-    setMessages([welcomeMessage]);
+  timestamp: new Date()
+};
 
-    // Check API health
+const App: React.FC = () => {
+  // Initialize messages from localStorage or with welcome message
+  const [messages, setMessages] = useState<Message[]>(() => {
+    const savedMessages = getInitialMessages();
+    if (savedMessages.length > 0) {
+      return savedMessages;
+    }
+    return [WELCOME_MESSAGE];
+  });
+  
+  const [inputValue, setInputValue] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+
+  // Save messages to localStorage whenever they change
+  useEffect(() => {
+    if (messages.length > 0) {
+      localStorage.setItem('chatHistory', JSON.stringify(messages));
+    }
+  }, [messages]);
+
+  useEffect(() => {
+    // Check API health on mount
     checkApiHealth();
   }, []);
 
@@ -107,7 +133,7 @@ Try asking me something like:
 
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
-        type: data.error ? 'error' : 'ai',
+        type: 'ai',
         content: data.response,
         timestamp: new Date()
       };
@@ -133,8 +159,14 @@ Try asking me something like:
     }
   };
 
+  // Clear chat but keep welcome message, also clear localStorage
   const clearChat = () => {
-    setMessages(messages.filter(msg => msg.id === 'welcome'));
+    const welcomeMsg: Message = {
+      ...WELCOME_MESSAGE,
+      timestamp: new Date()
+    };
+    setMessages([welcomeMsg]);
+    localStorage.removeItem('chatHistory');
   };
 
   return (
